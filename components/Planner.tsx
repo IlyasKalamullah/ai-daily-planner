@@ -2,19 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Chat from "./Chat";
-import { ChatIcon, ChevronLeft, ChevronRight, LayersIcon, PinIcon } from "./Icons";
-
-type PlannerEvent = {
-  id: string;
-  calendar: string;
-  calendarColor?: string;
-  title: string;
-  start: string;
-  end: string;
-  allDay: boolean;
-  location?: string;
-  link?: string;
-};
+import EventSheet, { whenText } from "./EventSheet";
+import { ChatIcon, ChevronLeft, ChevronRight, LayersIcon, MailIcon, PinIcon, UsersIcon } from "./Icons";
+import { api, RSVP_LABEL } from "@/lib/client";
+import type { PlannerEvent, RsvpResponse } from "@/lib/types";
 
 const HARI_PENDEK = ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"];
 
@@ -65,6 +56,10 @@ export default function Planner({ firstName }: { firstName: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
+  const [invites, setInvites] = useState<PlannerEvent[]>([]);
+  const [answering, setAnswering] = useState<string | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [openEvent, setOpenEvent] = useState<PlannerEvent | null>(null);
 
   // perbarui "sekarang" tiap menit untuk status "sedang berlangsung"
   useEffect(() => {
@@ -96,10 +91,40 @@ export default function Planner({ firstName }: { firstName: string }) {
     }
   }, [weekStart, timeZone]);
 
+  const loadInvites = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/invites?tz=${encodeURIComponent(timeZone)}`);
+      if (res.ok) setInvites((await res.json()).invites);
+    } catch {}
+  }, [timeZone]);
+
   useEffect(() => {
     load();
   }, [load]);
+  useEffect(() => {
+    loadInvites();
+  }, [loadInvites]);
 
+  const refreshAll = useCallback(() => {
+    load();
+    loadInvites();
+  }, [load, loadInvites]);
+
+  async function answer(ev: PlannerEvent, r: RsvpResponse) {
+    setAnswering(ev.id + r);
+    setInviteError(null);
+    try {
+      await api.rsvp(ev.id, r);
+      setInvites((list) => list.filter((x) => x.id !== ev.id));
+      load();
+    } catch (e: any) {
+      setInviteError(e.message);
+    } finally {
+      setAnswering(null);
+    }
+  }
+
+  const closeChat = useCallback(() => setChatOpen(false), []);
   const dayEvents = events.filter((e) => occursOn(e, selected, timeZone));
   const weekCount = events.length;
   const timed = dayEvents.filter((e) => !e.allDay);
@@ -192,6 +217,49 @@ export default function Planner({ firstName }: { firstName: string }) {
             </div>
           </section>
 
+          {/* ---------- Undangan ---------- */}
+          {invites.length > 0 && (
+            <section className="card invites">
+              <div className="agenda-head">
+                <h2>
+                  <MailIcon size={17} /> Undangan
+                </h2>
+                <span className="count-pill">{invites.length}</span>
+              </div>
+              <div className="invite-list">
+                {invites.map((ev) => (
+                  <div key={ev.id} className="invite">
+                    <button className="invite-main" onClick={() => setOpenEvent(ev)}>
+                      <div className="invite-from">{ev.organizer || "Seseorang"} mengundangmu</div>
+                      <div className="tl-title">{ev.title}</div>
+                      <div className="tl-meta">
+                        <span>{whenText(ev, timeZone)}</span>
+                        {ev.attendees.length > 0 && (
+                          <span>
+                            <UsersIcon size={13} /> {ev.attendees.length} tamu
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                    <div className="invite-actions">
+                      {(["accepted", "tentative", "declined"] as RsvpResponse[]).map((r) => (
+                        <button
+                          key={r}
+                          className={`btn ${r === "accepted" ? "btn-primary" : ""}`}
+                          disabled={!!answering}
+                          onClick={() => answer(ev, r)}
+                        >
+                          {answering === ev.id + r ? "…" : RSVP_LABEL[r]}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {inviteError && <div className="alert" style={{ marginTop: 12 }}>{inviteError}</div>}
+            </section>
+          )}
+
           {/* ---------- Agenda ---------- */}
           <section className="card agenda">
             <div className="agenda-head">
@@ -238,15 +306,16 @@ export default function Planner({ firstName }: { firstName: string }) {
                           </>
                         )}
                       </div>
-                      <a
+                      <button
                         className="tl-card"
-                        href={e.link}
-                        target="_blank"
-                        rel="noreferrer"
+                        onClick={() => setOpenEvent(e)}
                         style={{ ["--c" as string]: e.calendarColor || "var(--accent)" }}
                       >
                         {live && <span className="badge live">Berlangsung</span>}
                         {past && <span className="badge done">Selesai</span>}
+                        {!e.isOrganizer && e.myResponse === "needsAction" && (
+                          <span className="badge pending">Belum dijawab</span>
+                        )}
                         <div className="tl-title">{e.title}</div>
                         <div className="tl-meta">
                           {e.location && (
@@ -254,11 +323,16 @@ export default function Planner({ firstName }: { firstName: string }) {
                               <PinIcon size={13} /> {e.location}
                             </span>
                           )}
+                          {e.attendees.length > 0 && (
+                            <span>
+                              <UsersIcon size={13} /> {e.attendees.length} tamu
+                            </span>
+                          )}
                           <span>
                             <LayersIcon size={13} /> {e.calendar}
                           </span>
                         </div>
-                      </a>
+                      </button>
                     </li>
                   );
                 })}
@@ -267,11 +341,20 @@ export default function Planner({ firstName }: { firstName: string }) {
           </section>
         </div>
 
-        <Chat timeZone={timeZone} onEventCreated={load} open={chatOpen} onClose={() => setChatOpen(false)} />
+        <Chat timeZone={timeZone} onChanged={refreshAll} open={chatOpen} onClose={closeChat} />
       </div>
 
       <div className={`backdrop ${chatOpen ? "show" : ""}`} onClick={() => setChatOpen(false)} />
-      {!chatOpen && (
+      {openEvent && (
+        <EventSheet
+          key={openEvent.id}
+          event={openEvent}
+          timeZone={timeZone}
+          onClose={() => setOpenEvent(null)}
+          onChanged={refreshAll}
+        />
+      )}
+      {!chatOpen && !openEvent && (
         <button className="fab" onClick={() => setChatOpen(true)}>
           <ChatIcon size={20} /> Tanya asisten
         </button>

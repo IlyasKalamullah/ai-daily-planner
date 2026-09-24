@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { createEvent, getEvents, GoogleAuthError } from "@/lib/google";
+import { createEvent, deleteEvent, getEvents, updateEvent } from "@/lib/google";
+import { handleGoogleError } from "@/lib/errors";
 import { addDays, isValidDate, isValidTimeZone } from "@/lib/time";
+import { hasChanges, parseChanges, parseNewEvent, str } from "@/lib/validate";
 
 async function requireSession() {
   const session = await auth();
@@ -9,13 +11,7 @@ async function requireSession() {
   return session;
 }
 
-function handleError(e: unknown) {
-  if (e instanceof GoogleAuthError) {
-    return NextResponse.json({ error: "Sesi Google kedaluwarsa, silakan login ulang." }, { status: 401 });
-  }
-  console.error(e);
-  return NextResponse.json({ error: "Gagal menghubungi Google Calendar." }, { status: 500 });
-}
+const tzOf = (v: unknown) => (isValidTimeZone(v) ? (v as string) : "Asia/Jakarta");
 
 // GET /api/events?start=2026-10-01&end=2026-10-07&tz=Asia/Jakarta
 export async function GET(req: Request) {
@@ -25,50 +21,69 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const start = url.searchParams.get("start");
   let end = url.searchParams.get("end") || start;
-  const tzParam = url.searchParams.get("tz");
-  const tz = isValidTimeZone(tzParam) ? tzParam : "Asia/Jakarta";
+  const tz = tzOf(url.searchParams.get("tz"));
   if (!isValidDate(start) || !isValidDate(end)) {
     return NextResponse.json({ error: "Parameter tanggal tidak valid." }, { status: 400 });
   }
   if (end > addDays(start, 62)) end = addDays(start, 62);
 
   try {
-    const events = await getEvents(session.accessToken!, start, end, tz);
-    return NextResponse.json({ events });
+    return NextResponse.json({ events: await getEvents(session.accessToken!, start, end, tz) });
   } catch (e) {
-    return handleError(e);
+    return handleGoogleError(e);
   }
 }
 
-// POST /api/events  -> membuat jadwal baru (setelah user menekan konfirmasi)
+// POST /api/events  { event, timeZone } -> buat jadwal baru
 export async function POST(req: Request) {
   const session = await requireSession();
   if (!session) return NextResponse.json({ error: "Silakan login ulang." }, { status: 401 });
 
   const body = await req.json().catch(() => null);
-  const ev = body?.event;
-  const tz = isValidTimeZone(body?.timeZone) ? body.timeZone : "Asia/Jakarta";
-  const validTime = (t: unknown) => t === undefined || (typeof t === "string" && /^\d{2}:\d{2}$/.test(t));
-  if (!ev?.title || !isValidDate(ev?.date) || !validTime(ev.startTime) || !validTime(ev.endTime)) {
-    return NextResponse.json({ error: "Data jadwal tidak valid." }, { status: 400 });
-  }
+  const ev = parseNewEvent(body?.event);
+  if (!ev) return NextResponse.json({ error: "Data jadwal tidak valid." }, { status: 400 });
 
   try {
-    const created = await createEvent(
-      session.accessToken!,
-      {
-        title: String(ev.title).slice(0, 200),
-        date: ev.date,
-        startTime: ev.startTime,
-        endTime: ev.endTime,
-        allDay: !!ev.allDay,
-        location: ev.location ? String(ev.location).slice(0, 200) : undefined,
-        description: ev.description ? String(ev.description).slice(0, 1000) : undefined,
-      },
-      tz
-    );
-    return NextResponse.json({ ok: true, link: created.htmlLink });
+    const created = await createEvent(session.accessToken!, ev, tzOf(body?.timeZone));
+    return NextResponse.json({ ok: true, link: created?.htmlLink });
   } catch (e) {
-    return handleError(e);
+    return handleGoogleError(e);
+  }
+}
+
+// PATCH /api/events  { calendarId, eventId, changes, timeZone } -> ubah jadwal
+export async function PATCH(req: Request) {
+  const session = await requireSession();
+  if (!session) return NextResponse.json({ error: "Silakan login ulang." }, { status: 401 });
+
+  const body = await req.json().catch(() => null);
+  const calendarId = str(body?.calendarId, 300);
+  const eventId = str(body?.eventId, 300);
+  const changes = parseChanges(body?.changes);
+  if (!calendarId || !eventId || !hasChanges(changes)) {
+    return NextResponse.json({ error: "Data perubahan tidak valid." }, { status: 400 });
+  }
+  try {
+    await updateEvent(session.accessToken!, calendarId, eventId, changes, tzOf(body?.timeZone));
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    return handleGoogleError(e);
+  }
+}
+
+// DELETE /api/events  { calendarId, eventId } -> hapus jadwal
+export async function DELETE(req: Request) {
+  const session = await requireSession();
+  if (!session) return NextResponse.json({ error: "Silakan login ulang." }, { status: 401 });
+
+  const body = await req.json().catch(() => null);
+  const calendarId = str(body?.calendarId, 300);
+  const eventId = str(body?.eventId, 300);
+  if (!calendarId || !eventId) return NextResponse.json({ error: "Data tidak valid." }, { status: 400 });
+  try {
+    await deleteEvent(session.accessToken!, calendarId, eventId);
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    return handleGoogleError(e);
   }
 }

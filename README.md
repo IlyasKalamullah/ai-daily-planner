@@ -9,7 +9,9 @@ Daily planner berbasis web yang terhubung ke **Google Calendar**, dengan **chat 
 - Login dengan akun Google. Bisa dipakai banyak orang, dan tiap orang hanya melihat jadwalnya sendiri.
 - Tampilan mingguan dan harian dari semua kalender yang aktif, termasuk kalender yang dibagikan orang lain.
 - Chat AI dengan *tool calling*: AI mengecek Google Calendar sebelum menjawab, jadi tidak mengarang jadwal.
-- Tambah jadwal lewat chat ("tambahkan gym besok jam 6 sore"). Jadwal baru tersimpan setelah kamu menekan **Simpan ke Calendar**.
+- Tambah, edit, dan hapus jadwal lewat chat atau dengan mengklik jadwal di agenda. Semua perubahan lewat chat perlu dikonfirmasi dulu.
+- Undang orang lewat email ("buat rapat Jumat jam 10, undang budi@gmail.com"). Google mengirim email undangannya.
+- Kartu **Undangan** untuk menerima, menolak, atau menjawab "mungkin" undangan dari orang lain.
 - Batas chat per pengguna per hari, supaya kuota AI gratis tidak cepat habis.
 - Halaman Kebijakan Privasi di `/privacy`, yang dibutuhkan untuk verifikasi Google.
 - Tidak ada database. Jadwal dibaca langsung dari Google dan tidak disimpan.
@@ -128,7 +130,7 @@ Setelah mengubah environment variable di Vercel, buka **Deployments → ⋯ → 
 
 Kalau chat cukup untuk membaca jadwal saja:
 
-1. Di `app/api/chat/route.ts`, hapus objek `propose_event` dari array `TOOLS`.
+1. Di `app/api/chat/route.ts`, hapus objek `propose_event`, `propose_update`, `propose_delete`, dan `propose_rsvp` dari array `TOOLS`.
 2. Di `auth.ts`, ganti scope `calendar.events` menjadi `https://www.googleapis.com/auth/calendar.events.readonly`, lalu sesuaikan scope yang sama di Google Cloud.
 
 ## Supaya bisa dipakai publik tanpa peringatan (verifikasi Google)

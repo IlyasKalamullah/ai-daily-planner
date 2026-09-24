@@ -1,28 +1,23 @@
 "use client";
 
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
-import { CalendarIcon, CloseIcon, SendIcon, SparkIcon } from "./Icons";
+import { CalendarIcon, CloseIcon, EditIcon, MailIcon, SendIcon, SparkIcon, TrashIcon } from "./Icons";
+import { api, describeChanges, formatDateLong, RSVP_LABEL } from "@/lib/client";
+import type { NewEvent, Proposal } from "@/lib/types";
 
-type Proposal = {
-  title: string;
-  date: string;
-  startTime?: string;
-  endTime?: string;
-  allDay?: boolean;
-  location?: string;
-  description?: string;
-};
+type Status = "pending" | "saving" | "saved" | "cancelled";
 
 type Item =
   | { kind: "msg"; role: "user" | "assistant"; content: string }
   | { kind: "error"; content: string }
-  | { kind: "proposal"; proposal: Proposal; status: "pending" | "saving" | "saved" | "cancelled" };
+  | { kind: "proposal"; proposal: Proposal; status: Status };
 
 const SUGGESTIONS = [
   "Hari ini ada jadwal apa?",
   "Besok padat nggak?",
   "Minggu ini kosong hari apa?",
   "Tambahkan olahraga besok jam 6 sore",
+  "Ada undangan yang belum aku jawab?",
 ];
 
 /* ---------- Markdown ringan: **tebal**, *miring*, dan daftar "- " ---------- */
@@ -62,26 +57,100 @@ function Markdown({ text }: { text: string }) {
   return <>{blocks}</>;
 }
 
-function formatProposal(p: Proposal) {
-  const date = new Intl.DateTimeFormat("id-ID", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(new Date(`${p.date}T12:00:00Z`));
+function formatNew(p: NewEvent) {
+  const date = formatDateLong(p.date);
   if (p.allDay || !p.startTime) return `${date} · seharian`;
   return `${date} · ${p.startTime.replace(":", ".")}${p.endTime ? `–${p.endTime.replace(":", ".")}` : ""}`;
 }
 
+const CARD = {
+  create: { icon: <CalendarIcon />, tone: "", confirm: "Simpan", done: "✓ Tersimpan di Google Calendar" },
+  update: { icon: <EditIcon />, tone: "", confirm: "Simpan perubahan", done: "✓ Jadwal diperbarui" },
+  delete: { icon: <TrashIcon />, tone: "danger", confirm: "Hapus", done: "✓ Jadwal dihapus" },
+  rsvp: { icon: <MailIcon />, tone: "", confirm: "Kirim jawaban", done: "✓ Jawaban terkirim" },
+} as const;
+
+function ProposalCard({
+  p,
+  status,
+  onConfirm,
+  onCancel,
+}: {
+  p: Proposal;
+  status: Status;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const cfg = CARD[p.type];
+  let title: string;
+  let lines: string[] = [];
+  let label: string;
+  if (p.type === "create") {
+    label = "Jadwal baru";
+    title = p.event.title;
+    lines.push(formatNew(p.event));
+    if (p.event.location) lines.push(`📍 ${p.event.location}`);
+    if (p.event.attendees?.length) lines.push(`✉️ Undang: ${p.event.attendees.join(", ")}`);
+  } else if (p.type === "update") {
+    label = "Ubah jadwal";
+    title = p.title;
+    lines = [p.when, ...describeChanges(p.changes)];
+  } else if (p.type === "delete") {
+    label = p.isOrganizer ? "Hapus jadwal" : "Hapus dari kalenderku";
+    title = p.title;
+    lines.push(p.when);
+    if (p.isOrganizer && p.attendeeCount > 0) lines.push(`${p.attendeeCount} tamu akan diberi tahu`);
+    if (!p.isOrganizer) lines.push("Kamu hanya tamu; jadwal hanya hilang dari kalendermu");
+  } else {
+    label = "Jawab undangan";
+    title = p.title;
+    lines = [p.when, `Jawaban: ${RSVP_LABEL[p.response]}`];
+  }
+
+  return (
+    <div className={`proposal ${cfg.tone}`}>
+      <div className="p-head">
+        <div className="p-icon">{cfg.icon}</div>
+        <div>
+          <div className="p-label">{label}</div>
+          <div className="p-title">{title}</div>
+          {lines.map((l, i) => (
+            <div key={i} className={`p-meta ${i > 0 && p.type === "update" ? "p-change" : ""}`}>
+              {l}
+            </div>
+          ))}
+        </div>
+      </div>
+      {status === "saved" ? (
+        <div className="p-status">{cfg.done}</div>
+      ) : status === "cancelled" ? (
+        <div className="p-status muted">Dibatalkan</div>
+      ) : (
+        <div className="row">
+          <button className="btn" disabled={status === "saving"} onClick={onCancel}>
+            Batal
+          </button>
+          <button
+            className={`btn ${cfg.tone === "danger" ? "btn-danger" : "btn-primary"}`}
+            disabled={status === "saving"}
+            onClick={onConfirm}
+          >
+            {status === "saving" ? "Memproses…" : cfg.confirm}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Chat({
   timeZone,
-  onEventCreated,
+  onChanged,
   open,
   onClose,
 }: {
   timeZone: string;
-  onEventCreated: () => void;
+  onChanged: () => void;
   open: boolean;
   onClose: () => void;
 }) {
@@ -156,24 +225,22 @@ export default function Chat({
   async function confirm(index: number) {
     const item = items[index];
     if (item.kind !== "proposal") return;
+    const p = item.proposal;
     setStatus(index, "saving");
     try {
-      const res = await fetch("/api/events", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ event: item.proposal, timeZone }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Gagal menyimpan");
+      if (p.type === "create") await api.create(p.event, timeZone);
+      else if (p.type === "update") await api.update(p.calendarId, p.eventId, p.changes, timeZone);
+      else if (p.type === "delete") await api.remove(p.calendarId, p.eventId);
+      else await api.rsvp(p.eventId, p.response);
       setStatus(index, "saved");
-      onEventCreated();
+      onChanged();
     } catch (e: any) {
       setStatus(index, "pending");
       setItems((prev) => [...prev, { kind: "error", content: e.message }]);
     }
   }
 
-  function setStatus(index: number, status: "pending" | "saving" | "saved" | "cancelled") {
+  function setStatus(index: number, status: Status) {
     setItems((prev) => prev.map((it, i) => (i === index && it.kind === "proposal" ? { ...it, status } : it)));
   }
 
@@ -208,36 +275,14 @@ export default function Chat({
               </div>
             );
           }
-          const p = it.proposal;
           return (
-            <div key={i} className="proposal">
-              <div className="p-head">
-                <div className="p-icon">
-                  <CalendarIcon />
-                </div>
-                <div>
-                  <div className="p-title">{p.title}</div>
-                  <div className="p-meta">
-                    {formatProposal(p)}
-                    {p.location ? ` · ${p.location}` : ""}
-                  </div>
-                </div>
-              </div>
-              {it.status === "saved" ? (
-                <div className="p-status">✓ Tersimpan di Google Calendar</div>
-              ) : it.status === "cancelled" ? (
-                <div className="p-status muted">Dibatalkan</div>
-              ) : (
-                <div className="row">
-                  <button className="btn" disabled={it.status === "saving"} onClick={() => setStatus(i, "cancelled")}>
-                    Batal
-                  </button>
-                  <button className="btn btn-primary" disabled={it.status === "saving"} onClick={() => confirm(i)}>
-                    {it.status === "saving" ? "Menyimpan…" : "Simpan"}
-                  </button>
-                </div>
-              )}
-            </div>
+            <ProposalCard
+              key={i}
+              p={it.proposal}
+              status={it.status}
+              onConfirm={() => confirm(i)}
+              onCancel={() => setStatus(i, "cancelled")}
+            />
           );
         })}
 

@@ -37,7 +37,7 @@ export default function Privacy() {
           Saat kamu bertanya di chat, pertanyaan beserta jadwal yang relevan dikirim ke penyedia AI ({provider})
           untuk menyusun jawaban. Riwayat chat tidak disimpan di server kami; riwayat hilang saat halaman ditutup.
         </li>
-        <li>Aplikasi hanya membuat jadwal baru setelah kamu menekan tombol konfirmasi. Aplikasi tidak menghapus atau mengubah jadwal yang sudah ada.</li>
+        <li>Aplikasi hanya membuat, mengubah, atau menghapus jadwal, mengundang tamu, dan menjawab undangan setelah kamu menekan tombol konfirmasi. Saat kamu mengundang orang, Google Calendar mengirim email undangan ke alamat yang kamu masukkan.</li>
         <li>Token login disimpan dalam cookie terenkripsi di browser kamu.</li>
         <li>Untuk membatasi pemakaian, kami menyimpan jumlah pertanyaan per hari yang dikaitkan dengan email kamu, dan data ini dihapus otomatis dalam 26 jam.</li>
       </ul>
