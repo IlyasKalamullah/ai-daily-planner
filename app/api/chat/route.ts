@@ -28,7 +28,7 @@ const TOOLS = [
     function: {
       name: "get_events",
       description:
-        "Ambil daftar jadwal pengguna dari Google Calendar untuk rentang tanggal (inklusif). Gunakan setiap kali pengguna bertanya tentang jadwal pada tanggal/periode tertentu.",
+        "Ambil daftar jadwal pengguna dari Google Calendar untuk rentang tanggal (inklusif), maksimal 366 hari sekali panggil. Bisa untuk satu hari, sepekan, sebulan, beberapa bulan, atau setahun. Untuk rentang panjang hasilnya diringkas.",
       parameters: {
         type: "object",
         properties: {
@@ -161,6 +161,7 @@ Membaca jadwal:
 - SELALU panggil tool dulu. Jangan mengarang jadwal.
 - Jika pengguna menyebut tanggal/periode, pakai get_events.
 - Jika pengguna menanyakan KAPAN suatu kegiatan (tanpa tanggal), pakai search_events dengan kata kunci inti. Jika tidak ketemu, coba kata kunci lain yang lebih pendek/sinonim sebelum menyimpulkan tidak ada. Sebutkan apakah kegiatan itu sudah lewat atau akan datang.
+- Rentang panjang boleh: "bulan depan" = tanggal 1 s/d akhir bulan depan; "3 bulan ke depan" = hari ini s/d +3 bulan; "tahun ini" = hari ini s/d 31 Desember (atau 1 Jan s/d 31 Des jika pengguna ingin setahun penuh). Untuk rentang panjang, beri ringkasan dulu (jumlah per bulan, hari tersibuk, kegiatan penting) lalu tawarkan detail.
 - Tafsirkan tanggal relatif dari hari ini. "Tanggal 12" tanpa bulan = tanggal 12 terdekat yang akan datang, kecuali konteks menunjukkan masa lalu. "Minggu ini" = Senin s/d Minggu pekan berjalan.
 - Sebutkan jam dalam format 24 jam (contoh 09.30), urutkan berdasarkan waktu. Jangan tampilkan ref ke pengguna.
 
@@ -195,6 +196,40 @@ function formatEvents(events: PlannerEvent[], timeZone: string) {
       return parts.join(" ");
     })
     .join("\n");
+}
+
+const MAX_LINES = 120;
+
+/** Format hasil get_events. Rentang panjang/banyak jadwal -> format ringkas agar hemat token. */
+function formatRange(events: PlannerEvent[], start: string, end: string, timeZone: string) {
+  const header = `Jadwal ${start} s/d ${end}: ${events.length} jadwal.`;
+  if (events.length === 0) return `${header} Tidak ada jadwal pada rentang ini.`;
+  const long = end > addDays(start, 31) || events.length > 40;
+  if (!long) return `${header}\n${formatEvents(events, timeZone)}`;
+
+  // ringkasan per bulan
+  const ym = (e: PlannerEvent) =>
+    e.allDay ? e.start.slice(0, 7) : new Intl.DateTimeFormat("en-CA", { timeZone }).format(new Date(e.start)).slice(0, 7);
+  const perMonth = new Map<string, number>();
+  for (const e of events) perMonth.set(ym(e), (perMonth.get(ym(e)) || 0) + 1);
+  const summary = [...perMonth].map(([m, n]) => `${m}: ${n} jadwal`).join(", ");
+
+  const d = new Intl.DateTimeFormat("en-CA", { timeZone });
+  const t = new Intl.DateTimeFormat("id-ID", { timeZone, hour: "2-digit", minute: "2-digit", hour12: false });
+  const shown = events.slice(0, MAX_LINES);
+  const lines = shown.map((e) => {
+    const when = e.allDay
+      ? `${e.start} seharian`
+      : `${d.format(new Date(e.start))} ${t.format(new Date(e.start))}–${t.format(new Date(e.end))}`;
+    return `- ${when}: ${e.title}`;
+  });
+  let tail = "";
+  if (events.length > MAX_LINES) {
+    const last = shown[shown.length - 1];
+    const lastDate = last.allDay ? last.start : d.format(new Date(last.start));
+    tail = `\n(Daftar terpotong: ${events.length - MAX_LINES} jadwal lagi setelah ${lastDate}. Panggil get_events lagi mulai ${lastDate} jika pengguna butuh detailnya.)`;
+  }
+  return `${header}\nRingkasan per bulan: ${summary}\nDaftar (ringkas, tanpa ref; untuk edit/hapus panggil get_events dengan rentang pendek):\n${lines.join("\n")}${tail}`;
 }
 
 function parseRef(ref: unknown): { calendarId: string; eventId: string } | null {
@@ -243,8 +278,13 @@ export async function POST(req: Request) {
         if (!isValidDate(args.start_date) || !isValidDate(args.end_date)) return "Error: format tanggal harus YYYY-MM-DD.";
         let { start_date, end_date } = args;
         if (end_date < start_date) [start_date, end_date] = [end_date, start_date];
-        if (end_date > addDays(start_date, 62)) end_date = addDays(start_date, 62);
-        return formatEvents(await getEvents(token, start_date, end_date, timeZone), timeZone);
+        let note = "";
+        if (end_date > addDays(start_date, 365)) {
+          end_date = addDays(start_date, 365);
+          note = `\n(Rentang dibatasi 366 hari, sampai ${end_date}.)`;
+        }
+        const events = await getEvents(token, start_date, end_date, timeZone);
+        return formatRange(events, start_date, end_date, timeZone) + note;
       }
       case "search_events": {
         const query = str(args.query, 100);

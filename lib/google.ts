@@ -89,21 +89,25 @@ function mapEvent(ev: any, cal: CalendarListItem): PlannerEvent {
 async function listFromCalendars(
   token: string,
   params: Record<string, string>,
-  calendars?: CalendarListItem[]
+  calendars?: CalendarListItem[],
+  maxPages = 1
 ): Promise<PlannerEvent[]> {
   const cals = calendars || (await listCalendars(token));
   const results = await Promise.all(
     cals.map(async (cal) => {
       try {
-        const data = await gfetch(
-          token,
-          `/calendars/${encodeURIComponent(cal.id)}/events?${new URLSearchParams({
-            singleEvents: "true",
-            orderBy: "startTime",
-            ...params,
-          })}`
-        );
-        return (data.items || [])
+        // ambil beberapa halaman agar rentang panjang (mis. setahun) tidak terpotong
+        const items: any[] = [];
+        let pageToken: string | undefined;
+        for (let page = 0; page < maxPages; page++) {
+          const q = new URLSearchParams({ singleEvents: "true", orderBy: "startTime", ...params });
+          if (pageToken) q.set("pageToken", pageToken);
+          const data = await gfetch(token, `/calendars/${encodeURIComponent(cal.id)}/events?${q}`);
+          items.push(...(data.items || []));
+          pageToken = data.nextPageToken;
+          if (!pageToken) break;
+        }
+        return items
           .filter((ev: any) => ev.status !== "cancelled")
           .map((ev: any) => mapEvent(ev, cal));
       } catch (e) {
@@ -124,12 +128,17 @@ async function listFromCalendars(
 
 /** Ambil jadwal dari startDate s/d endDate (inklusif), di zona waktu user. */
 export async function getEvents(token: string, startDate: string, endDate: string, timeZone: string) {
-  return listFromCalendars(token, {
-    timeMin: toRfc3339(startDate, "00:00", timeZone),
-    timeMax: toRfc3339(addDays(endDate, 1), "00:00", timeZone),
-    timeZone,
-    maxResults: "250",
-  });
+  return listFromCalendars(
+    token,
+    {
+      timeMin: toRfc3339(startDate, "00:00", timeZone),
+      timeMax: toRfc3339(addDays(endDate, 1), "00:00", timeZone),
+      timeZone,
+      maxResults: "250",
+    },
+    undefined,
+    4 // hingga 1000 jadwal per kalender
+  );
 }
 
 /** Cari jadwal berdasarkan kata kunci (judul, deskripsi, lokasi, peserta). */
