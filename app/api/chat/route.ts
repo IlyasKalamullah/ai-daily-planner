@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { chatCompletion, type ChatMessage } from "@/lib/ai";
-import { getEvents, GoogleAuthError, type NewEvent, type PlannerEvent } from "@/lib/google";
+import {
+  getEvents,
+  GoogleAuthError,
+  searchEvents,
+  type NewEvent,
+  type PlannerEvent,
+} from "@/lib/google";
 import { consumeChatQuota } from "@/lib/ratelimit";
 import { addDays, isValidDate, isValidTimeZone, todayIn } from "@/lib/time";
 
@@ -21,6 +27,27 @@ const TOOLS = [
           end_date: { type: "string", description: "Tanggal akhir (inklusif), format YYYY-MM-DD" },
         },
         required: ["start_date", "end_date"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "search_events",
+      description:
+        "Cari jadwal berdasarkan kata kunci (nama kegiatan, orang, tempat) ketika pengguna tidak menyebut tanggal, misalnya 'kapan sidang saya?' atau 'kapan terakhir meeting sama Budi?'. Secara default mencari 1 tahun ke belakang s/d 1 tahun ke depan.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description:
+              "Kata kunci pendek dan inti, 1–2 kata (contoh: 'sidang', 'dentist', 'Budi'). Hindari kata umum seperti 'saya', 'jadwal', 'acara'.",
+          },
+          start_date: { type: "string", description: "Opsional. Tanggal awal YYYY-MM-DD" },
+          end_date: { type: "string", description: "Opsional. Tanggal akhir YYYY-MM-DD" },
+        },
+        required: ["query"],
       },
     },
   },
@@ -57,7 +84,10 @@ function systemPrompt(timeZone: string) {
 Hari ini: ${dow}, ${today}. Zona waktu pengguna: ${timeZone}.
 
 Aturan:
-- Untuk pertanyaan tentang jadwal, SELALU panggil get_events dulu. Jangan mengarang jadwal.
+- Untuk pertanyaan tentang jadwal, SELALU panggil tool dulu. Jangan mengarang jadwal.
+- Jika pengguna menyebut tanggal/periode, pakai get_events.
+- Jika pengguna menanyakan KAPAN suatu kegiatan (tanpa tanggal), pakai search_events dengan kata kunci inti. Jika tidak ketemu, coba lagi dengan kata kunci lain yang lebih pendek atau sinonim (contoh: "sidang tugas akhir" -> "sidang" -> "TA") sebelum menyimpulkan tidak ada.
+- Saat melaporkan hasil pencarian, sebutkan apakah kegiatan itu sudah lewat atau akan datang relatif terhadap hari ini.
 - Tafsirkan tanggal relatif dari hari ini. "Tanggal 12" tanpa bulan = tanggal 12 terdekat yang akan datang (bulan ini jika belum lewat, kalau sudah lewat bulan depan), kecuali konteks menunjukkan masa lalu. "Minggu ini" = Senin s/d Minggu pekan berjalan.
 - Sebutkan jam dalam format 24 jam (contoh 09.30) dan urutkan berdasarkan waktu.
 - Jika tidak ada jadwal, katakan dengan jelas bahwa hari itu kosong.
@@ -130,7 +160,7 @@ export async function POST(req: Request) {
   const proposals: NewEvent[] = [];
 
   try {
-    for (let step = 0; step < 5; step++) {
+    for (let step = 0; step < 6; step++) {
       const msg = await chatCompletion(messages, TOOLS);
       if (!msg) throw new Error("Respons AI kosong");
 
@@ -161,6 +191,20 @@ export async function POST(req: Request) {
             if (end_date > addDays(start_date, 62)) end_date = addDays(start_date, 62);
             const events = await getEvents(session.accessToken, start_date, end_date, timeZone);
             result = formatEvents(events, timeZone);
+          }
+        } else if (call.function.name === "search_events") {
+          const query = typeof args.query === "string" ? args.query.trim().slice(0, 100) : "";
+          if (!query) {
+            result = "Error: query wajib diisi.";
+          } else {
+            const today = todayIn(timeZone);
+            const start = isValidDate(args.start_date) ? args.start_date : addDays(today, -365);
+            const end = isValidDate(args.end_date) ? args.end_date : addDays(today, 365);
+            const events = await searchEvents(session.accessToken, query, start, end, timeZone);
+            result =
+              events.length === 0
+                ? `Tidak ditemukan jadwal dengan kata kunci "${query}" antara ${start} dan ${end}.`
+                : `Hasil pencarian "${query}" (hari ini ${today}):\n` + formatEvents(events, timeZone);
           }
         } else if (call.function.name === "propose_event") {
           if (!args.title || !isValidDate(args.date)) {

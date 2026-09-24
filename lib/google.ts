@@ -115,6 +115,67 @@ export async function getEvents(
     .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
 }
 
+/**
+ * Cari jadwal berdasarkan kata kunci (judul, deskripsi, lokasi, peserta)
+ * di semua kalender, dalam rentang startDate s/d endDate.
+ */
+export async function searchEvents(
+  token: string,
+  query: string,
+  startDate: string,
+  endDate: string,
+  timeZone: string
+): Promise<PlannerEvent[]> {
+  const timeMin = toRfc3339(startDate, "00:00", timeZone);
+  const timeMax = toRfc3339(addDays(endDate, 1), "00:00", timeZone);
+  const calendars = await listCalendars(token);
+
+  const results = await Promise.all(
+    calendars.map(async (cal) => {
+      const params = new URLSearchParams({
+        q: query,
+        timeMin,
+        timeMax,
+        timeZone,
+        singleEvents: "true",
+        orderBy: "startTime",
+        maxResults: "25",
+      });
+      try {
+        const data = await gfetch(
+          token,
+          `/calendars/${encodeURIComponent(cal.id)}/events?${params}`
+        );
+        return (data.items || [])
+          .filter((ev: any) => ev.status !== "cancelled")
+          .map(
+            (ev: any): PlannerEvent => ({
+              id: ev.id,
+              calendar: cal.summaryOverride || cal.summary,
+              calendarColor: cal.backgroundColor,
+              title: ev.summary || "(Tanpa judul)",
+              start: ev.start?.dateTime || ev.start?.date,
+              end: ev.end?.dateTime || ev.end?.date,
+              allDay: !ev.start?.dateTime,
+              location: ev.location,
+              description: ev.description?.slice(0, 500),
+              link: ev.htmlLink,
+            })
+          );
+      } catch (e) {
+        if (e instanceof GoogleAuthError) throw e;
+        console.error(`Gagal mencari di kalender ${cal.id}`, e);
+        return [];
+      }
+    })
+  );
+
+  return results
+    .flat()
+    .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
+    .slice(0, 40);
+}
+
 export type NewEvent = {
   title: string;
   date: string; // YYYY-MM-DD
