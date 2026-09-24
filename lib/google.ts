@@ -64,7 +64,9 @@ function mapEvent(ev: any, cal: CalendarListItem): PlannerEvent {
       organizer: !!a.organizer,
     }));
   const me = attendees.find((a) => a.self);
-  const isOrganizer = ev.organizer?.self ?? true;
+  // Jika ada data organizer, user adalah pembuat hanya bila organizer.self === true.
+  // Jika tidak ada data organizer sama sekali (jadwal pribadi), anggap user pembuatnya.
+  const isOrganizer = ev.organizer ? ev.organizer.self === true : true;
   const writable = cal.accessRole === "owner" || cal.accessRole === "writer";
   return {
     id: ev.id,
