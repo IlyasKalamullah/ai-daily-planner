@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-export const metadata = { title: "Kebijakan Privasi – AI Daily Planner" };
+export const metadata = { title: "Kebijakan Privasi – Daily Planner" };
 
 export default function Privacy() {
   const contact = process.env.NEXT_PUBLIC_CONTACT_EMAIL || "(isi NEXT_PUBLIC_CONTACT_EMAIL)";
@@ -15,7 +15,7 @@ export default function Privacy() {
       <p>Terakhir diperbarui: 24 September 2026</p>
 
       <p>
-        AI Daily Planner (&ldquo;aplikasi&rdquo;) membantu kamu melihat dan menambah jadwal Google Calendar serta
+        Daily Planner (&ldquo;aplikasi&rdquo;) membantu kamu melihat dan menambah jadwal Google Calendar serta
         bertanya tentang jadwal lewat chat. Halaman ini menjelaskan data apa yang diakses dan bagaimana
         penggunaannya.
       </p>

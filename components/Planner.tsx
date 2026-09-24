@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Chat from "./Chat";
 import EventSheet, { whenText } from "./EventSheet";
-import { ChatIcon, ChevronLeft, ChevronRight, LayersIcon, MailIcon, PinIcon, UsersIcon } from "./Icons";
+import { CalendarIcon, ChatIcon, ChevronLeft, ChevronRight, LayersIcon, MailIcon, PinIcon, UsersIcon } from "./Icons";
 import { api, RSVP_LABEL } from "@/lib/client";
 import type { PlannerEvent, RsvpResponse } from "@/lib/types";
 
@@ -158,7 +158,7 @@ export default function Planner({ firstName }: { firstName: string }) {
                   {firstName ? `, ${firstName}` : ""} 👋
                 </div>
                 <h1>{selected === today ? "Hari ini" : longDate.split(",")[0]}</h1>
-                <div className="greet">{longDate}</div>
+                <div className="date-sub">{longDate}</div>
               </div>
               <div className="nav">
                 <button className="btn btn-icon" onClick={() => setSelected(addDays(selected, -7))} aria-label="Pekan sebelumnya">
@@ -275,7 +275,7 @@ export default function Planner({ firstName }: { firstName: string }) {
               </div>
             ) : error ? (
               <div className="empty">
-                <span className="emoji">⚠️</span>
+                <span className="empty-ic"><CalendarIcon size={22} /></span>
                 <b>{error}</b>
                 <button className="btn" style={{ marginTop: 12 }} onClick={load}>
                   Coba lagi
@@ -283,9 +283,9 @@ export default function Planner({ firstName }: { firstName: string }) {
               </div>
             ) : dayEvents.length === 0 ? (
               <div className="empty">
-                <span className="emoji">🌿</span>
+                <span className="empty-ic"><CalendarIcon size={22} /></span>
                 <b>Hari yang lapang</b>
-                Tidak ada jadwal. Minta asisten menambahkan kegiatan kalau perlu.
+                Belum ada jadwal. Tambahkan lewat chat kalau perlu.
               </div>
             ) : (
               <ol className="timeline">
@@ -356,7 +356,7 @@ export default function Planner({ firstName }: { firstName: string }) {
       )}
       {!chatOpen && !openEvent && (
         <button className="fab" onClick={() => setChatOpen(true)}>
-          <ChatIcon size={20} /> Tanya asisten
+          <ChatIcon size={20} /> Tanya jadwal
         </button>
       )}
     </>

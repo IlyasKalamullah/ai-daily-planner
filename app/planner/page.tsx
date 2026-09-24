@@ -1,7 +1,8 @@
 import { redirect } from "next/navigation";
 import { auth, signOut } from "@/auth";
 import Planner from "@/components/Planner";
-import { LogoutIcon, SparkIcon } from "@/components/Icons";
+import ThemeToggle from "@/components/ThemeToggle";
+import { CalendarIcon, LogoutIcon } from "@/components/Icons";
 
 export default async function PlannerPage() {
   const session = await auth();
@@ -15,11 +16,12 @@ export default async function PlannerPage() {
       <header className="topbar">
         <div className="brand">
           <div className="logo">
-            <SparkIcon size={18} />
+            <CalendarIcon size={18} />
           </div>
-          <span>AI Daily Planner</span>
+          <span>Daily Planner</span>
         </div>
         <div className="user">
+          <ThemeToggle />
           <div className="user-chip">
             {session.user.image ? (
               // eslint-disable-next-line @next/next/no-img-element

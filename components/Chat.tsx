@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
-import { CalendarIcon, CloseIcon, EditIcon, MailIcon, SendIcon, SparkIcon, TrashIcon } from "./Icons";
+import { CalendarIcon, ChatIcon, CloseIcon, EditIcon, MailIcon, SendIcon, TrashIcon } from "./Icons";
 import { api, describeChanges, formatDateLong, RSVP_LABEL } from "@/lib/client";
 import type { NewEvent, Proposal } from "@/lib/types";
 
@@ -64,10 +64,10 @@ function formatNew(p: NewEvent) {
 }
 
 const CARD = {
-  create: { icon: <CalendarIcon />, tone: "", confirm: "Simpan", done: "✓ Tersimpan di Google Calendar" },
-  update: { icon: <EditIcon />, tone: "", confirm: "Simpan perubahan", done: "✓ Jadwal diperbarui" },
-  delete: { icon: <TrashIcon />, tone: "danger", confirm: "Hapus", done: "✓ Jadwal dihapus" },
-  rsvp: { icon: <MailIcon />, tone: "", confirm: "Kirim jawaban", done: "✓ Jawaban terkirim" },
+  create: { icon: <CalendarIcon />, tone: "", confirm: "Simpan", done: "Tersimpan di Google Calendar" },
+  update: { icon: <EditIcon />, tone: "", confirm: "Simpan perubahan", done: "Jadwal diperbarui" },
+  delete: { icon: <TrashIcon />, tone: "danger", confirm: "Hapus", done: "Jadwal dihapus" },
+  rsvp: { icon: <MailIcon />, tone: "", confirm: "Kirim jawaban", done: "Jawaban terkirim" },
 } as const;
 
 function ProposalCard({
@@ -89,8 +89,8 @@ function ProposalCard({
     label = "Jadwal baru";
     title = p.event.title;
     lines.push(formatNew(p.event));
-    if (p.event.location) lines.push(`📍 ${p.event.location}`);
-    if (p.event.attendees?.length) lines.push(`✉️ Undang: ${p.event.attendees.join(", ")}`);
+    if (p.event.location) lines.push(`Lokasi: ${p.event.location}`);
+    if (p.event.attendees?.length) lines.push(`Undang: ${p.event.attendees.join(", ")}`);
   } else if (p.type === "update") {
     label = "Ubah jadwal";
     title = p.title;
@@ -158,7 +158,7 @@ export default function Chat({
     {
       kind: "msg",
       role: "assistant",
-      content: "Halo! Tanyakan apa saja tentang jadwalmu, atau minta saya menambahkan jadwal baru.",
+      content: "Halo! Tanyakan jadwalmu, atau minta saya menambah, mengubah, dan menghapus kegiatan.",
     },
   ]);
   const [input, setInput] = useState("");
@@ -248,10 +248,10 @@ export default function Chat({
     <aside className={`card chat ${open ? "open" : ""}`} aria-label="Asisten jadwal">
       <div className="chat-head">
         <div className="bot-avatar">
-          <SparkIcon size={20} />
+          <ChatIcon size={19} />
         </div>
         <div className="titles">
-          <strong>Asisten Jadwal</strong>
+          <strong>Tanya jadwal</strong>
           <small>{remaining !== null ? `Sisa ${remaining} pertanyaan hari ini` : "Terhubung ke Google Calendar"}</small>
         </div>
         <button className="btn btn-ghost btn-icon chat-close" onClick={onClose} aria-label="Tutup chat">
