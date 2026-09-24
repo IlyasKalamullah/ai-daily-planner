@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Chat from "./Chat";
+import { ChatIcon, ChevronLeft, ChevronRight, LayersIcon, PinIcon } from "./Icons";
 
 type PlannerEvent = {
   id: string;
@@ -31,27 +32,45 @@ function addDays(dateStr: string, n: number) {
 function weekday(dateStr: string) {
   return new Date(`${dateStr}T12:00:00Z`).getUTCDay();
 }
-/** Senin dari pekan yang memuat dateStr */
 function mondayOf(dateStr: string) {
   const w = weekday(dateStr);
   return addDays(dateStr, w === 0 ? -6 : 1 - w);
 }
-
-/** Apakah event berlangsung pada tanggal `day` */
 function occursOn(ev: PlannerEvent, day: string, timeZone: string) {
   if (ev.allDay) return ev.start <= day && day < ev.end;
   const s = ymd(new Date(ev.start), timeZone);
   const e = ymd(new Date(new Date(ev.end).getTime() - 1), timeZone);
   return s <= day && day <= e;
 }
+function greeting(hour: number) {
+  if (hour < 11) return "Selamat pagi";
+  if (hour < 15) return "Selamat siang";
+  if (hour < 18) return "Selamat sore";
+  return "Selamat malam";
+}
+function fmtDuration(ms: number) {
+  const m = Math.round(ms / 60000);
+  if (m < 60) return `${m} mnt`;
+  const h = Math.floor(m / 60);
+  const r = m % 60;
+  return r ? `${h} j ${r} mnt` : `${h} jam`;
+}
 
-export default function Planner() {
+export default function Planner({ firstName }: { firstName: string }) {
   const timeZone = useMemo(tz, []);
-  const today = useMemo(() => ymd(new Date(), timeZone), [timeZone]);
+  const [now, setNow] = useState(() => new Date());
+  const today = ymd(now, timeZone);
   const [selected, setSelected] = useState(today);
   const [events, setEvents] = useState<PlannerEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
+
+  // perbarui "sekarang" tiap menit untuk status "sedang berlangsung"
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(t);
+  }, []);
 
   const weekStart = mondayOf(selected);
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
@@ -82,8 +101,13 @@ export default function Planner() {
   }, [load]);
 
   const dayEvents = events.filter((e) => occursOn(e, selected, timeZone));
+  const weekCount = events.length;
+  const timed = dayEvents.filter((e) => !e.allDay);
+  const busyMs = timed.reduce((sum, e) => sum + (new Date(e.end).getTime() - new Date(e.start).getTime()), 0);
+  const upcoming = events.find((e) => !e.allDay && new Date(e.start) > now);
 
   const fmtTime = new Intl.DateTimeFormat("id-ID", { timeZone, hour: "2-digit", minute: "2-digit", hour12: false });
+  const fmtDayShort = new Intl.DateTimeFormat("id-ID", { timeZone, weekday: "short", day: "numeric", month: "short" });
   const longDate = new Intl.DateTimeFormat("id-ID", {
     weekday: "long",
     day: "numeric",
@@ -91,94 +115,167 @@ export default function Planner() {
     year: "numeric",
     timeZone: "UTC",
   }).format(new Date(`${selected}T12:00:00Z`));
+  const monthLabel = new Intl.DateTimeFormat("id-ID", { month: "long", year: "numeric", timeZone: "UTC" }).format(
+    new Date(`${selected}T12:00:00Z`)
+  );
+  const hour = Number(new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", hour12: false }).format(now));
 
   return (
-    <div className="layout">
-      <section className="panel">
-        <div className="planner-head">
-          <div>
-            <h2>{selected === today ? "Hari ini" : longDate.split(",")[0]}</h2>
-            <div className="sub">{longDate}</div>
-          </div>
-          <div className="nav">
-            <button className="btn" onClick={() => setSelected(addDays(selected, -7))} aria-label="Pekan sebelumnya">
-              ‹
-            </button>
-            <button className="btn" onClick={() => setSelected(today)}>
-              Hari ini
-            </button>
-            <button className="btn" onClick={() => setSelected(addDays(selected, 7))} aria-label="Pekan berikutnya">
-              ›
-            </button>
-          </div>
-        </div>
-
-        <div className="week">
-          {days.map((d) => {
-            const has = events.some((e) => occursOn(e, d, timeZone));
-            return (
-              <button
-                key={d}
-                className={`day ${d === selected ? "active" : ""} ${d === today ? "today" : ""} ${has ? "has" : ""}`}
-                onClick={() => setSelected(d)}
-              >
-                <span className="dname">{HARI_PENDEK[weekday(d)]}</span>
-                <span className="dnum">{Number(d.slice(8))}</span>
-                <span className="dot" />
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="events">
-          {loading ? (
-            <>
-              <div className="skeleton" />
-              <div className="skeleton" />
-            </>
-          ) : error ? (
-            <div className="empty">
-              {error} <br />
-              <button className="btn" style={{ marginTop: 10 }} onClick={load}>
-                Coba lagi
-              </button>
+    <>
+      <div className="layout">
+        <div className="main-col">
+          {/* ---------- Hero ---------- */}
+          <section className="card hero">
+            <div className="hero-top">
+              <div>
+                <div className="greet">
+                  {greeting(hour)}
+                  {firstName ? `, ${firstName}` : ""} 👋
+                </div>
+                <h1>{selected === today ? "Hari ini" : longDate.split(",")[0]}</h1>
+                <div className="greet">{longDate}</div>
+              </div>
+              <div className="nav">
+                <button className="btn btn-icon" onClick={() => setSelected(addDays(selected, -7))} aria-label="Pekan sebelumnya">
+                  <ChevronLeft />
+                </button>
+                <button className="btn today-btn" onClick={() => setSelected(today)}>
+                  {monthLabel}
+                </button>
+                <button className="btn btn-icon" onClick={() => setSelected(addDays(selected, 7))} aria-label="Pekan berikutnya">
+                  <ChevronRight />
+                </button>
+              </div>
             </div>
-          ) : dayEvents.length === 0 ? (
-            <div className="empty">Tidak ada jadwal. Hari yang lapang 🌿</div>
-          ) : (
-            dayEvents.map((e) => (
-              <a
-                key={`${e.calendar}-${e.id}`}
-                className="event"
-                href={e.link}
-                target="_blank"
-                rel="noreferrer"
-                style={{ borderLeftColor: e.calendarColor || "var(--accent)" }}
-              >
-                <div className="time">
-                  {e.allDay ? (
-                    "Seharian"
-                  ) : (
-                    <>
-                      {fmtTime.format(new Date(e.start))}
-                      <small>{fmtTime.format(new Date(e.end))}</small>
-                    </>
-                  )}
-                </div>
-                <div>
-                  <div className="title">{e.title}</div>
-                  <div className="meta">
-                    {e.location ? `${e.location} · ` : ""}
-                    {e.calendar}
-                  </div>
-                </div>
-              </a>
-            ))
-          )}
-        </div>
-      </section>
 
-      <Chat timeZone={timeZone} onEventCreated={load} />
-    </div>
+            <div className="week" role="tablist" aria-label="Pilih hari">
+              {days.map((d) => {
+                const count = events.filter((e) => occursOn(e, d, timeZone)).length;
+                return (
+                  <button
+                    key={d}
+                    role="tab"
+                    aria-selected={d === selected}
+                    className={`day ${d === selected ? "active" : ""} ${d === today ? "today" : ""}`}
+                    onClick={() => setSelected(d)}
+                  >
+                    <span className="dname">{HARI_PENDEK[weekday(d)]}</span>
+                    <span className="dnum">{Number(d.slice(8))}</span>
+                    <span className="dots">
+                      {Array.from({ length: Math.min(count, 3) }, (_, i) => (
+                        <i key={i} />
+                      ))}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="stats">
+              <div className="stat accent">
+                <span className="label">Jadwal</span>
+                <span className="value">{loading ? "–" : dayEvents.length}</span>
+                <span className="hint">{selected === today ? "hari ini" : "hari dipilih"}</span>
+              </div>
+              <div className="stat">
+                <span className="label">Terisi</span>
+                <span className="value">{loading ? "–" : busyMs ? fmtDuration(busyMs) : "0"}</span>
+                <span className="hint">{weekCount} jadwal pekan ini</span>
+              </div>
+              <div className="stat next">
+                <span className="label">Berikutnya</span>
+                <span className="value small">{loading ? "–" : upcoming ? upcoming.title : "Tidak ada"}</span>
+                <span className="hint">
+                  {upcoming ? `${fmtDayShort.format(new Date(upcoming.start))} · ${fmtTime.format(new Date(upcoming.start))}` : "di pekan ini"}
+                </span>
+              </div>
+            </div>
+          </section>
+
+          {/* ---------- Agenda ---------- */}
+          <section className="card agenda">
+            <div className="agenda-head">
+              <h2>Agenda</h2>
+              <span>{dayEvents.length ? `${dayEvents.length} kegiatan` : ""}</span>
+            </div>
+
+            {loading ? (
+              <div className="timeline">
+                <div className="skeleton" />
+                <div className="skeleton" />
+                <div className="skeleton" />
+              </div>
+            ) : error ? (
+              <div className="empty">
+                <span className="emoji">⚠️</span>
+                <b>{error}</b>
+                <button className="btn" style={{ marginTop: 12 }} onClick={load}>
+                  Coba lagi
+                </button>
+              </div>
+            ) : dayEvents.length === 0 ? (
+              <div className="empty">
+                <span className="emoji">🌿</span>
+                <b>Hari yang lapang</b>
+                Tidak ada jadwal. Minta asisten menambahkan kegiatan kalau perlu.
+              </div>
+            ) : (
+              <ol className="timeline">
+                {dayEvents.map((e) => {
+                  const s = new Date(e.start);
+                  const en = new Date(e.end);
+                  const live = !e.allDay && s <= now && now < en;
+                  const past = !e.allDay && en <= now;
+                  return (
+                    <li key={`${e.calendar}-${e.id}`} className={`tl-item ${past ? "past" : ""}`}>
+                      <div className="tl-time">
+                        {e.allDay ? (
+                          <b>Seharian</b>
+                        ) : (
+                          <>
+                            <b>{fmtTime.format(s)}</b>
+                            <small>{fmtTime.format(en)}</small>
+                          </>
+                        )}
+                      </div>
+                      <a
+                        className="tl-card"
+                        href={e.link}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ ["--c" as string]: e.calendarColor || "var(--accent)" }}
+                      >
+                        {live && <span className="badge live">Berlangsung</span>}
+                        {past && <span className="badge done">Selesai</span>}
+                        <div className="tl-title">{e.title}</div>
+                        <div className="tl-meta">
+                          {e.location && (
+                            <span>
+                              <PinIcon size={13} /> {e.location}
+                            </span>
+                          )}
+                          <span>
+                            <LayersIcon size={13} /> {e.calendar}
+                          </span>
+                        </div>
+                      </a>
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
+          </section>
+        </div>
+
+        <Chat timeZone={timeZone} onEventCreated={load} open={chatOpen} onClose={() => setChatOpen(false)} />
+      </div>
+
+      <div className={`backdrop ${chatOpen ? "show" : ""}`} onClick={() => setChatOpen(false)} />
+      {!chatOpen && (
+        <button className="fab" onClick={() => setChatOpen(true)}>
+          <ChatIcon size={20} /> Tanya asisten
+        </button>
+      )}
+    </>
   );
 }

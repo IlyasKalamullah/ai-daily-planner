@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import { CalendarIcon, CloseIcon, SendIcon, SparkIcon } from "./Icons";
 
 type Proposal = {
   title: string;
@@ -20,9 +21,46 @@ type Item =
 const SUGGESTIONS = [
   "Hari ini ada jadwal apa?",
   "Besok padat nggak?",
-  "Tanggal 12 ada jadwal apa?",
   "Minggu ini kosong hari apa?",
+  "Tambahkan olahraga besok jam 6 sore",
 ];
+
+/* ---------- Markdown ringan: **tebal**, *miring*, dan daftar "- " ---------- */
+function inline(text: string): ReactNode[] {
+  return text.split(/(\*\*[^*]+\*\*|\*[^*\s][^*]*\*)/g).map((part, i) => {
+    if (/^\*\*[^*]+\*\*$/.test(part)) return <strong key={i}>{part.slice(2, -2)}</strong>;
+    if (/^\*[^*]+\*$/.test(part)) return <em key={i}>{part.slice(1, -1)}</em>;
+    return <Fragment key={i}>{part}</Fragment>;
+  });
+}
+function Markdown({ text }: { text: string }) {
+  const blocks: ReactNode[] = [];
+  let list: string[] = [];
+  const flush = () => {
+    if (list.length) {
+      blocks.push(
+        <ul key={`ul-${blocks.length}`}>
+          {list.map((l, i) => (
+            <li key={i}>{inline(l)}</li>
+          ))}
+        </ul>
+      );
+      list = [];
+    }
+  };
+  for (const raw of text.split("\n")) {
+    const line = raw.trimEnd();
+    const m = line.match(/^\s*(?:[-*•]|\d+\.)\s+(.*)$/);
+    if (m) {
+      list.push(m[1]);
+    } else {
+      flush();
+      if (line.trim()) blocks.push(<p key={`p-${blocks.length}`}>{inline(line.trim())}</p>);
+    }
+  }
+  flush();
+  return <>{blocks}</>;
+}
 
 function formatProposal(p: Proposal) {
   const date = new Intl.DateTimeFormat("id-ID", {
@@ -39,9 +77,13 @@ function formatProposal(p: Proposal) {
 export default function Chat({
   timeZone,
   onEventCreated,
+  open,
+  onClose,
 }: {
   timeZone: string;
   onEventCreated: () => void;
+  open: boolean;
+  onClose: () => void;
 }) {
   const [items, setItems] = useState<Item[]>([
     {
@@ -54,10 +96,22 @@ export default function Chat({
   const [loading, setLoading] = useState(false);
   const [remaining, setRemaining] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [items, loading]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    const t = setTimeout(() => inputRef.current?.focus(), 250);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      clearTimeout(t);
+    };
+  }, [open, onClose]);
 
   async function send(text: string) {
     const content = text.trim();
@@ -69,7 +123,7 @@ export default function Chat({
 
     const history = next
       .filter((i): i is Extract<Item, { kind: "msg" }> => i.kind === "msg")
-      .slice(1) // lewati salam pembuka
+      .slice(1)
       .map((i) => ({ role: i.role, content: i.content }));
 
     try {
@@ -120,16 +174,22 @@ export default function Chat({
   }
 
   function setStatus(index: number, status: "pending" | "saving" | "saved" | "cancelled") {
-    setItems((prev) =>
-      prev.map((it, i) => (i === index && it.kind === "proposal" ? { ...it, status } : it))
-    );
+    setItems((prev) => prev.map((it, i) => (i === index && it.kind === "proposal" ? { ...it, status } : it)));
   }
 
   return (
-    <aside className="panel chat">
+    <aside className={`card chat ${open ? "open" : ""}`} aria-label="Asisten jadwal">
       <div className="chat-head">
-        <strong>Asisten Jadwal</strong>
-        {remaining !== null && <span>Sisa {remaining} pertanyaan hari ini</span>}
+        <div className="bot-avatar">
+          <SparkIcon size={20} />
+        </div>
+        <div className="titles">
+          <strong>Asisten Jadwal</strong>
+          <small>{remaining !== null ? `Sisa ${remaining} pertanyaan hari ini` : "Terhubung ke Google Calendar"}</small>
+        </div>
+        <button className="btn btn-ghost btn-icon chat-close" onClick={onClose} aria-label="Tutup chat">
+          <CloseIcon />
+        </button>
       </div>
 
       <div className="messages">
@@ -137,7 +197,7 @@ export default function Chat({
           if (it.kind === "msg") {
             return (
               <div key={i} className={`msg ${it.role}`}>
-                {it.content}
+                {it.role === "assistant" ? <Markdown text={it.content} /> : it.content}
               </div>
             );
           }
@@ -151,22 +211,29 @@ export default function Chat({
           const p = it.proposal;
           return (
             <div key={i} className="proposal">
-              <div className="p-title">📅 {p.title}</div>
-              <div className="p-meta">
-                {formatProposal(p)}
-                {p.location ? ` · ${p.location}` : ""}
+              <div className="p-head">
+                <div className="p-icon">
+                  <CalendarIcon />
+                </div>
+                <div>
+                  <div className="p-title">{p.title}</div>
+                  <div className="p-meta">
+                    {formatProposal(p)}
+                    {p.location ? ` · ${p.location}` : ""}
+                  </div>
+                </div>
               </div>
               {it.status === "saved" ? (
-                <div className="p-meta">✅ Tersimpan di Google Calendar</div>
+                <div className="p-status">✓ Tersimpan di Google Calendar</div>
               ) : it.status === "cancelled" ? (
-                <div className="p-meta">Dibatalkan</div>
+                <div className="p-status muted">Dibatalkan</div>
               ) : (
                 <div className="row">
-                  <button className="btn btn-primary" disabled={it.status === "saving"} onClick={() => confirm(i)}>
-                    {it.status === "saving" ? "Menyimpan…" : "Simpan ke Calendar"}
-                  </button>
                   <button className="btn" disabled={it.status === "saving"} onClick={() => setStatus(i, "cancelled")}>
                     Batal
+                  </button>
+                  <button className="btn btn-primary" disabled={it.status === "saving"} onClick={() => confirm(i)}>
+                    {it.status === "saving" ? "Menyimpan…" : "Simpan"}
                   </button>
                 </div>
               )}
@@ -183,7 +250,13 @@ export default function Chat({
             ))}
           </div>
         )}
-        {loading && <div className="typing">Sedang mengecek jadwal…</div>}
+        {loading && (
+          <div className="typing" aria-label="Sedang mengecek jadwal">
+            <i />
+            <i />
+            <i />
+          </div>
+        )}
         <div ref={bottomRef} />
       </div>
 
@@ -194,16 +267,20 @@ export default function Chat({
           send(input);
         }}
       >
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Contoh: tanggal 12 ada jadwal apa?"
-          maxLength={1000}
-          aria-label="Pesan"
-        />
-        <button className="btn btn-primary" type="submit" disabled={loading || !input.trim()}>
-          Kirim
-        </button>
+        <div className="composer-inner">
+          <input
+            ref={inputRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Tanya jadwalmu…"
+            maxLength={1000}
+            aria-label="Pesan"
+            enterKeyHint="send"
+          />
+          <button className="btn btn-primary btn-icon" type="submit" disabled={loading || !input.trim()} aria-label="Kirim">
+            <SendIcon />
+          </button>
+        </div>
       </form>
     </aside>
   );

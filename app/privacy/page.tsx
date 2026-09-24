@@ -7,7 +7,7 @@ export default function Privacy() {
   const provider = (process.env.AI_PROVIDER || "groq") === "gemini" ? "Google Gemini API" : "Groq";
 
   return (
-    <main className="doc">
+    <main className="doc"><div className="card">
       <p>
         <Link href="/">← Kembali</Link>
       </p>
@@ -66,6 +66,6 @@ export default function Privacy() {
 
       <h2>Kontak</h2>
       <p>Pertanyaan tentang privasi: {contact}</p>
-    </main>
+    </div></main>
   );
 }
