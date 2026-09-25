@@ -70,8 +70,8 @@ export default function Planner({ firstName }: { firstName: string }) {
   const weekStart = mondayOf(selected);
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     setError(null);
     try {
       const res = await fetch(
@@ -108,6 +108,24 @@ export default function Planner({ firstName }: { firstName: string }) {
   const refreshAll = useCallback(() => {
     load();
     loadInvites();
+  }, [load, loadInvites]);
+
+  // Segarkan otomatis tanpa reload: tiap 60 detik (saat tab terlihat) dan saat kembali ke tab ini,
+  // supaya undangan/jadwal baru dari orang lain langsung muncul.
+  useEffect(() => {
+    const silent = () => {
+      if (document.visibilityState !== "visible") return;
+      load(true);
+      loadInvites();
+    };
+    const t = setInterval(silent, 60_000);
+    document.addEventListener("visibilitychange", silent);
+    window.addEventListener("focus", silent);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", silent);
+      window.removeEventListener("focus", silent);
+    };
   }, [load, loadInvites]);
 
   async function answer(ev: PlannerEvent, r: RsvpResponse) {
@@ -277,7 +295,7 @@ export default function Planner({ firstName }: { firstName: string }) {
               <div className="empty">
                 <span className="empty-ic"><CalendarIcon size={22} /></span>
                 <b>{error}</b>
-                <button className="btn" style={{ marginTop: 12 }} onClick={load}>
+                <button className="btn" style={{ marginTop: 12 }} onClick={() => load()}>
                   Coba lagi
                 </button>
               </div>
